@@ -1,38 +1,25 @@
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-from tensorflow.keras.layers.experimental.preprocessing import TextVectorization
-from dataclasses import dataclass
+
+
 import pandas as pd
 import numpy as np
 import glob
 import re
 from pprint import pprint
-
-# curl -O https://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz
-# tar -xf aclImdb_v1.tar.gz
-
-@dataclass
-class Config:
-    MAX_LEN = 256
-    BATCH_SIZE = 32
-    LR = 0.001
-    VOCAB_SIZE = 30000
-    EMBED_DIM = 128
-    NUM_HEAD = 8  # used in bert model
-    FF_DIM = 128  # used in bert model
-    NUM_LAYERS = 1
+from config import Config
 
 
-config = Config()
 
-def get_text_list_from_files(files):
-    text_list = []
-    for name in files:
-        with open(name) as f:
-            for line in f:
-                text_list.append(line)
-    return text_list
+
+
+
+
+
+
+
+
 
 
 def get_data_from_text_files(folder_name):
