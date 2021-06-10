@@ -1,22 +1,16 @@
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-
-
 import pandas as pd
 import numpy as np
 import glob
 import re
 from pprint import pprint
 from config import Config
+from data_pipeline import mlm_ds, vectorize_layer
 
-
-
-
-
-
-
-
+print(type(mlm_ds))
+config = Config()
 
 
 def bert_module(query, key, value, i):
@@ -181,7 +175,6 @@ bert_masked_model.summary()
 
 bert_masked_model.fit(mlm_ds, epochs=5, callbacks=[generator_callback])
 bert_masked_model.save("bert_mlm_imdb.h5")
-
 
 
 

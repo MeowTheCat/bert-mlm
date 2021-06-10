@@ -3,7 +3,7 @@ from dataclasses import dataclass
 @dataclass
 class Config:
     MAX_LEN = 20
-    BATCH_SIZE = 32
+    BATCH_SIZE = 128
     LR = 0.001
     VOCAB_SIZE = 30000
     EMBED_DIM = 128
