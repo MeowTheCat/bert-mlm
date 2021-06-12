@@ -45,7 +45,7 @@ def get_vectorize_layer(texts, max_seq=20, special_tokens=["x"]):
 
     # Insert mask token in vocabulary
     vocab = vectorize_layer.get_vocabulary()
-    vocab = vocab + ["x"]
+    vocab = vocab[2:] + ["x"]
     vectorize_layer.set_vocabulary(vocab)
     return vectorize_layer
 
@@ -102,5 +102,9 @@ mlm_ds = tf.data.Dataset.from_tensor_slices(
     (x_masked_train, y_masked_labels, sample_weights)
 )
 mlm_ds = mlm_ds.shuffle(1000).batch(config.BATCH_SIZE)
+
+sample_tokens = vectorize_layer(["明月几时有把酒问青x"])
+
+
 
 

@@ -1,13 +1,11 @@
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-import pandas as pd
 import numpy as np
-import glob
-import re
+import os
 from pprint import pprint
 from config import Config
-from data_pipeline import mlm_ds, vectorize_layer
+from data_pipeline import mlm_ds, vectorize_layer, mask_token_id
 
 print(type(mlm_ds))
 config = Config()
@@ -63,6 +61,7 @@ loss_fn = keras.losses.SparseCategoricalCrossentropy(
     reduction=tf.keras.losses.Reduction.NONE
 )
 loss_tracker = tf.keras.metrics.Mean(name="loss")
+acc_tracker = tf.keras.metrics.CategoricalAccuracy()
 
 
 class MaskedLanguageModel(tf.keras.Model):
@@ -86,9 +85,10 @@ class MaskedLanguageModel(tf.keras.Model):
 
         # Compute our own metrics
         loss_tracker.update_state(loss, sample_weight=sample_weight)
+        acc_tracker.update_state(tf.one_hot(labels, depth=config.VOCAB_SIZE), predictions, sample_weight=sample_weight)
 
         # Return a dict mapping metric names to current value
-        return {"loss": loss_tracker.result()}
+        return {"loss": loss_tracker.result(), 'accuracy':acc_tracker.result() }
 
     @property
     def metrics(self):
@@ -124,6 +124,7 @@ def create_masked_language_bert_model():
     mlm_model = MaskedLanguageModel(inputs, mlm_output, name="masked_bert_model")
 
     optimizer = keras.optimizers.Adam(learning_rate=config.LR)
+
     mlm_model.compile(optimizer=optimizer)
     return mlm_model
 
@@ -150,7 +151,7 @@ class MaskedTextGenerator(keras.callbacks.Callback):
         masked_index = masked_index[1]
         mask_prediction = prediction[0][masked_index]
 
-        top_indices = mask_prediction[0].argsort()[-self.k :][::-1]
+        top_indices = mask_prediction[0].argsort()[-self.k:][::-1]
         values = mask_prediction[0][top_indices]
 
         for i in range(len(top_indices)):
@@ -167,14 +168,20 @@ class MaskedTextGenerator(keras.callbacks.Callback):
             pprint(result)
 
 
-sample_tokens = vectorize_layer(["I have watched this [mask] and it was awesome"])
+sample_tokens = vectorize_layer(["春眠不觉晓处处闻啼x"])
 generator_callback = MaskedTextGenerator(sample_tokens.numpy())
+checkpoint_dir = "ckpts/"
+tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=checkpoint_dir, update_freq='epoch')
+ckpt_callback = tf.keras.callbacks.ModelCheckpoint(os.path.join(checkpoint_dir, 'ckpt-{epoch}'), save_weights_only=True)
 
 bert_masked_model = create_masked_language_bert_model()
-bert_masked_model.summary()
+latest = tf.train.latest_checkpoint(checkpoint_dir)
+if latest:
+    print('use checkpoint ' + latest)
+    bert_masked_model.load_weights(latest)
 
-bert_masked_model.fit(mlm_ds, epochs=5, callbacks=[generator_callback])
-bert_masked_model.save("bert_mlm_imdb.h5")
+bert_masked_model.fit(mlm_ds, epochs=10000, callbacks=[generator_callback, tensorboard_callback, ckpt_callback])
+bert_masked_model.save("ckpts/bert_mlm_imdb.h5")
 
 
 
