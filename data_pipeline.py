@@ -101,7 +101,7 @@ x_masked_train, y_masked_labels, sample_weights = get_masked_input_and_labels(en
 mlm_ds = tf.data.Dataset.from_tensor_slices(
     (x_masked_train, y_masked_labels, sample_weights)
 )
-mlm_ds = mlm_ds.shuffle(1000).batch(config.BATCH_SIZE)
+mlm_ds = mlm_ds.shuffle(1000).repeat(10).batch(config.BATCH_SIZE)
 
 sample_tokens = vectorize_layer(["明月几时有把酒问青x"])
 
