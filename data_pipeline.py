@@ -65,6 +65,7 @@ def get_masked_input_and_labels(encoded_texts):
     # Set input to [MASK] which is the last token for the 90% of tokens
     # This means leaving 10% unchanged
     inp_mask_2mask = inp_mask & (np.random.rand(*encoded_texts.shape) < 0.90)
+    print(inp_mask_2mask[0])
     encoded_texts_masked[
         inp_mask_2mask
     ] = mask_token_id  # mask token is the last in the dict
@@ -96,15 +97,17 @@ mask_token_id = vectorize_layer(["x"]).numpy()[0][0]
 
 encoded_text = vectorize_layer(text).numpy()
 
-x_masked_train, y_masked_labels, sample_weights = get_masked_input_and_labels(encoded_text)
 
-mlm_ds = tf.data.Dataset.from_tensor_slices(
-    (x_masked_train, y_masked_labels, sample_weights)
-)
-mlm_ds = mlm_ds.shuffle(1000).repeat(10).batch(config.BATCH_SIZE)
+def get_train_ds():
+    print('666666')
+    x_masked_train, y_masked_labels, sample_weights = get_masked_input_and_labels(encoded_text)
 
-sample_tokens = vectorize_layer(["明月几时有把酒问青x"])
+    mlm_ds = tf.data.Dataset.from_tensor_slices(
+        (x_masked_train, y_masked_labels, sample_weights)
+    )
+    mlm_ds = mlm_ds.repeat(100).shuffle(10000).batch(config.BATCH_SIZE)
 
+    return mlm_ds
 
 
 

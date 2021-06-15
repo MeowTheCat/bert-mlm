@@ -5,11 +5,10 @@ import numpy as np
 import os
 from pprint import pprint
 from config import Config
-from data_pipeline import mlm_ds, vectorize_layer, mask_token_id
+from data_pipeline import get_train_ds, vectorize_layer, mask_token_id
 
-print(type(mlm_ds))
 config = Config()
-
+checkpoint_dir = "ckpts/"
 
 def bert_module(query, key, value, i):
     # Multi headed self-attention
@@ -64,48 +63,54 @@ loss_tracker = tf.keras.metrics.Mean(name="loss")
 acc_tracker = tf.keras.metrics.CategoricalAccuracy()
 
 
-class MaskedLanguageModel(tf.keras.Model):
-    def train_step(self, inputs):
-        if len(inputs) == 3:
-            features, labels, sample_weight = inputs
-        else:
-            features, labels = inputs
-            sample_weight = None
-
-        with tf.GradientTape() as tape:
-            predictions = self(features, training=True)
-            loss = loss_fn(labels, predictions, sample_weight=sample_weight)
-
-        # Compute gradients
-        trainable_vars = self.trainable_variables
-        gradients = tape.gradient(loss, trainable_vars)
-
-        # Update weights
-        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
-
-        # Compute our own metrics
-        loss_tracker.update_state(loss, sample_weight=sample_weight)
-        acc_tracker.update_state(tf.one_hot(labels, depth=config.VOCAB_SIZE), predictions, sample_weight=sample_weight)
-
-        # Return a dict mapping metric names to current value
-        return {"loss": loss_tracker.result(), 'accuracy':acc_tracker.result() }
-
-    @property
-    def metrics(self):
-        # We list our `Metric` objects here so that `reset_states()` can be
-        # called automatically at the start of each epoch
-        # or at the start of `evaluate()`.
-        # If you don't implement this property, you have to call
-        # `reset_states()` yourself at the time of your choosing.
-        return [loss_tracker]
+# class MaskedLanguageModel(tf.keras.Model):
+#     def train_step(self, inputs):
+#         if len(inputs) == 3:
+#             features, labels, sample_weight = inputs
+#         else:
+#             features, labels = inputs
+#             sample_weight = None
+#
+#         with tf.GradientTape() as tape:
+#             predictions = self(features, training=True)
+#             loss = loss_fn(labels, predictions, sample_weight=sample_weight)
+#
+#         # Compute gradients
+#         trainable_vars = self.trainable_variables
+#         gradients = tape.gradient(loss, trainable_vars)
+#
+#         # Update weights
+#         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+#
+#         # Compute our own metrics
+#         loss_tracker.update_state(loss, sample_weight=sample_weight)
+#         acc_tracker.update_state(tf.one_hot(labels, depth=config.VOCAB_SIZE), predictions, sample_weight=sample_weight)
+#
+#         # Return a dict mapping metric names to current value
+#         return {"loss": loss_tracker.result(), 'accuracy':acc_tracker.result() }
+#
+#     @property
+#     def metrics(self):
+#         # We list our `Metric` objects here so that `reset_states()` can be
+#         # called automatically at the start of each epoch
+#         # or at the start of `evaluate()`.
+#         # If you don't implement this property, you have to call
+#         # `reset_states()` yourself at the time of your choosing.
+#         return [loss_tracker]
 
 
 def create_masked_language_bert_model():
-    inputs = layers.Input((config.MAX_LEN,), dtype=tf.int64)
+    # if tf.io.gfile.exists(os.path.join(checkpoint_dir, "savedmodel")):
+    #     mlm_model = tf.keras.models.load_model(os.path.join(checkpoint_dir, "savedmodel"))
+    #     optimizer = keras.optimizers.Adam(learning_rate=config.LR)
+    #     mlm_model.compile(optimizer=optimizer)
+    #     return mlm_model
+
+    features = layers.Input((config.MAX_LEN,), dtype=tf.int64)
 
     word_embeddings = layers.Embedding(
         config.VOCAB_SIZE, config.EMBED_DIM, name="word_embedding"
-    )(inputs)
+    )(features)
     position_embeddings = layers.Embedding(
         input_dim=config.MAX_LEN,
         output_dim=config.EMBED_DIM,
@@ -121,11 +126,16 @@ def create_masked_language_bert_model():
     mlm_output = layers.Dense(config.VOCAB_SIZE, name="mlm_cls", activation="softmax")(
         encoder_output
     )
-    mlm_model = MaskedLanguageModel(inputs, mlm_output, name="masked_bert_model")
+    mlm_model = tf.keras.Model(features, mlm_output)
+
+    latest = tf.train.latest_checkpoint(checkpoint_dir)
+    if latest:
+        print(latest)
+        mlm_model.load_weights(tf.train.latest_checkpoint(checkpoint_dir))
 
     optimizer = keras.optimizers.Adam(learning_rate=config.LR)
-
-    mlm_model.compile(optimizer=optimizer)
+    mlm_model.compile(optimizer=optimizer, loss= keras.losses.SparseCategoricalCrossentropy(reduction=tf.keras.losses.Reduction.NONE),
+                      metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
     return mlm_model
 
 
@@ -168,20 +178,22 @@ class MaskedTextGenerator(keras.callbacks.Callback):
             pprint(result)
 
 
-sample_tokens = vectorize_layer(["春眠不觉晓处处闻啼x"])
+sample_tokens = vectorize_layer(["落花人独立微雨燕双x"])
 generator_callback = MaskedTextGenerator(sample_tokens.numpy())
-checkpoint_dir = "ckpts/"
 tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=checkpoint_dir, update_freq='epoch')
 ckpt_callback = tf.keras.callbacks.ModelCheckpoint(os.path.join(checkpoint_dir, 'ckpt-{epoch}'), save_weights_only=True)
 
-bert_masked_model = create_masked_language_bert_model()
-latest = tf.train.latest_checkpoint(checkpoint_dir)
-if latest:
-    print('use checkpoint ' + latest)
-    bert_masked_model.load_weights(latest)
+train_ds = get_train_ds()
 
-bert_masked_model.fit(mlm_ds, epochs=10000, callbacks=[generator_callback, tensorboard_callback, ckpt_callback])
-bert_masked_model.save("ckpts/bert_mlm_imdb.h5")
+class DataCallback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        global train_ds
+        train_ds = get_train_ds()
+
+
+bert_masked_model = create_masked_language_bert_model()
+
+bert_masked_model.fit(train_ds, epochs=10000, callbacks=[DataCallback(), generator_callback, tensorboard_callback, ckpt_callback])
 
 
 
