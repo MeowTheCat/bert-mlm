@@ -103,7 +103,7 @@ def get_train_ds():
     x_masked_train, y_masked_labels, sample_weights = get_masked_input_and_labels(encoded_text)
 
     mlm_ds = tf.data.Dataset.from_tensor_slices(
-        (x_masked_train, y_masked_labels, sample_weights)
+        {"x":x_masked_train, "y":y_masked_labels, "w": sample_weights}
     )
     mlm_ds = mlm_ds.repeat(100).shuffle(10000).batch(config.BATCH_SIZE)
 

@@ -106,7 +106,9 @@ def create_masked_language_bert_model():
     #     mlm_model.compile(optimizer=optimizer)
     #     return mlm_model
 
-    features = layers.Input((config.MAX_LEN,), dtype=tf.int64)
+    features = layers.Input((config.MAX_LEN,), name="x", dtype=tf.int64)
+    y = layers.Input((config.MAX_LEN,), name="y", dtype=tf.int64)
+    w = layers.Input((config.MAX_LEN,), name="w", dtype=tf.int64)
 
     word_embeddings = layers.Embedding(
         config.VOCAB_SIZE, config.EMBED_DIM, name="word_embedding"
@@ -126,7 +128,14 @@ def create_masked_language_bert_model():
     mlm_output = layers.Dense(config.VOCAB_SIZE, name="mlm_cls", activation="softmax")(
         encoder_output
     )
-    mlm_model = tf.keras.Model(features, mlm_output)
+    mlm_model = tf.keras.Model([features, y, w], mlm_output)
+
+    loss = keras.losses.SparseCategoricalCrossentropy(from_logits=True)(y, mlm_output, w)
+    mlm_model.add_loss(loss)
+
+    acc = tf.keras.layers.Dot(axes=-1)([w, tf.cast(tf.equal(y, tf.argmax(mlm_output, axis=-1)), dtype=tf.int64)]) / tf.cast(tf.reduce_sum(w), tf.int64)
+    mlm_model.add_metric(acc, aggregation='mean', name='acc')
+
 
     latest = tf.train.latest_checkpoint(checkpoint_dir)
     if latest:
@@ -134,8 +143,7 @@ def create_masked_language_bert_model():
         mlm_model.load_weights(tf.train.latest_checkpoint(checkpoint_dir))
 
     optimizer = keras.optimizers.Adam(learning_rate=config.LR)
-    mlm_model.compile(optimizer=optimizer, loss= keras.losses.SparseCategoricalCrossentropy(reduction=tf.keras.losses.Reduction.NONE),
-                      metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
+    mlm_model.compile(optimizer=optimizer)
     return mlm_model
 
 
@@ -154,44 +162,69 @@ class MaskedTextGenerator(keras.callbacks.Callback):
     def convert_ids_to_tokens(self, id):
         return id2token[id]
 
+    # def on_epoch_end(self, epoch, logs=None):
+    #     prediction = self.model.predict(self.sample_tokens)
+    #
+    #     masked_index = np.where(self.sample_tokens == mask_token_id)
+    #     masked_index = masked_index[1]
+    #     mask_prediction = prediction[0][masked_index]
+    #
+    #     top_indices = mask_prediction[0].argsort()[-self.k:][::-1]
+    #     values = mask_prediction[0][top_indices]
+    #
+    #     for i in range(len(top_indices)):
+    #         p = top_indices[i]
+    #         v = values[i]
+    #         tokens = np.copy(sample_tokens[0])
+    #         tokens[masked_index[0]] = p
+    #         result = {
+    #             "input_text": self.decode(sample_tokens[0].numpy()),
+    #             "prediction": self.decode(tokens),
+    #             "probability": v,
+    #             "predicted mask token": self.convert_ids_to_tokens(p),
+    #         }
+    #         pprint(result)
+
     def on_epoch_end(self, epoch, logs=None):
-        prediction = self.model.predict(self.sample_tokens)
-
-        masked_index = np.where(self.sample_tokens == mask_token_id)
-        masked_index = masked_index[1]
-        mask_prediction = prediction[0][masked_index]
-
-        top_indices = mask_prediction[0].argsort()[-self.k:][::-1]
-        values = mask_prediction[0][top_indices]
-
-        for i in range(len(top_indices)):
-            p = top_indices[i]
-            v = values[i]
-            tokens = np.copy(sample_tokens[0])
-            tokens[masked_index[0]] = p
-            result = {
-                "input_text": self.decode(sample_tokens[0].numpy()),
-                "prediction": self.decode(tokens),
-                "probability": v,
-                "predicted mask token": self.convert_ids_to_tokens(p),
-            }
-            pprint(result)
+        result = ''
+        # for j in range(7, 10):
+        #     prediction = self.model.predict(self.sample_tokens)
+        #     mask_prediction = prediction[0][j]
+        #
+        #     top_index = mask_prediction.argsort()[-1]
+        #     print(mask_prediction)
+        #     print(top_index)
+        #     self.sample_tokens[0][j+1] = self.sample_tokens[0][j]
+        #     self.sample_tokens[0][j] = top_index
+        #     result += id2token[top_index]
+        # print(result)
 
 
-sample_tokens = vectorize_layer(["落花人独立微雨燕双x"])
+sample_tokens = vectorize_layer(["春眠不觉晓处处x啼鸟"])
+print(sample_tokens)
 generator_callback = MaskedTextGenerator(sample_tokens.numpy())
 tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=checkpoint_dir, update_freq='epoch')
 ckpt_callback = tf.keras.callbacks.ModelCheckpoint(os.path.join(checkpoint_dir, 'ckpt-{epoch}'), save_weights_only=True)
-
 train_ds = get_train_ds()
+
 
 class DataCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         global train_ds
         train_ds = get_train_ds()
+        print(train_ds.take(1))
 
 
 bert_masked_model = create_masked_language_bert_model()
+for element in train_ds.take(1):
+    input_x = element['x'].numpy()
+    input_y = element['y'].numpy()
+    pred = tf.math.argmax(bert_masked_model(element), -1).numpy()
+
+    for i in range(10):
+        print("".join([id2token[t] for t in input_x[i] if t != 0]))
+        print("".join([id2token[t] for t in input_y[i] if t != 0]))
+        print("".join([id2token[t] for t in pred[i] if t != 0]))
 
 bert_masked_model.fit(train_ds, epochs=10000, callbacks=[DataCallback(), generator_callback, tensorboard_callback, ckpt_callback])
 
