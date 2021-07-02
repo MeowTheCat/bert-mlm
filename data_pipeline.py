@@ -105,7 +105,7 @@ def get_train_ds():
     mlm_ds = tf.data.Dataset.from_tensor_slices(
         {"x":x_masked_train, "y":y_masked_labels, "w": sample_weights}
     )
-    mlm_ds = mlm_ds.repeat(100).shuffle(10000).batch(config.BATCH_SIZE)
+    mlm_ds = mlm_ds.repeat(10).shuffle(10000).batch(config.BATCH_SIZE)
 
     return mlm_ds
 
